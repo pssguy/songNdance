@@ -1,0 +1,558 @@
+---
+title: "Gloom Index"
+output: html_notebook
+runtime: shiny
+---
+
+This blah blah blah
+
+```{r, setup, warning=FALSE, message=FALSE}
+library(httr)
+library(stringr)
+library(tidyverse)
+library(lubridate)
+library(rvest)
+library(tidytext)
+library(scales)
+library(RColorBrewer)
+library(highcharter)
+library(DT)
+library(shiny)
+library(vembedr)
+library(plotly)
+
+## couple of trackinfo by artists
+rh <- read_csv("radioheadTrackInfo.csv")
+bey <- read_csv("beyonceTrackInfo.csv")
+
+```
+
+
+Here you can enter the artist and then select rows. For instance you will probably not want karaoke or tribute bands but may or may not wish to 
+include collaborations
+
+```{r artist, warning=FALSE, message=FALSE}
+# Select Artist
+
+
+textInput("artist","Enter Artist",value="David Bowie")
+actionButton(inputId="goArtist",label="Go")
+
+
+  
+  artistData <- eventReactive(input$goArtist,{
+
+    req(input$artist)
+     req(input$artist)
+  # Search Spotify API for artist name
+  res <- GET('https://api.spotify.com/v1/search', query = list(q = input$artist, type = 'artist')) %>%
+    content %>% .$artists %>% .$items
+
+  # Clean response and combine all returned artists into a dataframe
+  artists <- map_df(seq_len(length(res)), function(x) {
+    list(
+      artist_name = res[[x]]$name,
+      artist_uri = str_replace(res[[x]]$uri, 'spotify:artist:', ''), # remove meta info from the uri string
+      artist_img = ifelse(length(res[[x]]$images) > 0, res[[x]]$images[[1]]$url, NA)
+    )
+  })
+
+   return(artists)
+  })
+  
+  output$artists <- DT::renderDataTable({
+   artistData() %>%
+      select(artist=artist_name,artist_uri,artist_img) %>% 
+  DT::datatable(class='compact stripe hover row-border order-column',
+                selection="multiple",rownames=FALSE,options= list(paging = FALSE, searching = FALSE,info=FALSE))
+  })
+
+  DT::dataTableOutput("artists")
+actionButton(inputId="goArtists",label="Go")
+
+
+  
+```  
+
+
+Looks good but only goes back so far? isssue with bowie spiders from mars
+
+```{r albums, warning=FALSE, message=FALSE}
+
+
+
+#Select Albums
+
+
+ allArtistsData <- eventReactive(input$goArtists,{
+
+   req(input$artists_rows_selected)
+  s = as.integer(input$artists_rows_selected)
+
+ 
+  
+  for (i in seq_along(s)) {
+
+    j <- s[i]
+  
+ albums <- GET(paste0('https://api.spotify.com/v1/artists/', artistData()$artist_uri[j],'/albums')) %>% content
+
+
+album_info <-  map_df(1:length(albums$items), function(x) {
+    tmp <- albums$items[[x]]
+    
+    # Make sure the album_type is not "single"
+    if (tmp$album_type == 'album') {
+      data.frame(album_uri = str_replace(tmp$uri, 'spotify:album:', ''),
+                 album_name = str_replace_all(tmp$name, '\'', ''),
+                 album_img = albums$items[[x]]$images[[1]]$url,
+                 stringsAsFactors = F) %>%
+        mutate(album_release_date = GET(paste0('https://api.spotify.com/v1/albums/', str_replace(tmp$uri, 'spotify:album:', ''))) %>% content %>% .$release_date, # you need a separate call to on "albums" to get release date.
+               album_release_year = ifelse(nchar(album_release_date) == 4, year(as.Date(album_release_date, '%Y')), year(as.Date(album_release_date, '%Y-%m-%d'))) # not all album_release_dates have months, so I created album_release year for sorting
+        )
+    } else {
+      NULL
+    }
+    
+  }) %>% filter(!duplicated(tolower(album_name))) %>%  # Sometimes there are multiple versions (just with different capitalizations) of the same album
+    arrange(album_release_year) %>% 
+   mutate(artist=artistData()$artist_name[j])
+
+
+
+  if(i!=1) {
+    allAlbum_info <- rbind(allAlbum_info,album_info)
+  } else {
+     allAlbum_info <- album_info
+  }
+ }  
+ 
+    info=list(allAlbum_info=allAlbum_info)
+
+  return(info)
+ 
+ })
+ 
+ 
+  
+
+# })
+
+output$albumTable <- DT::renderDataTable({
+  allArtistsData()$allAlbum_info %>%
+                         DT::datatable(class='compact stripe hover row-border order-column',
+                                       selection="multiple",rownames=FALSE,options= list(paging = FALSE, searching = FALSE,info=FALSE))
+})
+
+DT::dataTableOutput("albumTable")
+actionButton(inputId="goAlbums",label="Go")
+
+```
+
+Now select albums
+
+```{r tracks, warning=FALSE, message=FALSE}
+# Get Tracks
+#get_tracks <- function(artist_info, album_info) {
+#spotify_df <- get_tracks(artist_info, album_info)
+  
+   tracksData <- eventReactive(input$goAlbums,{
+
+  client_id <- 'a749814f307b45fc9144e5ab6a0436e1'
+  client_secret <- '7beb57b32692463589c0491d9e35f60d'
+  access_token <- POST('https://accounts.spotify.com/api/token',
+                       accept_json(), authenticate(client_id, client_secret),
+                       body = list(grant_type='client_credentials'),
+                       encode = 'form', httr::config(http_version=2)) %>% content %>% .$access_token
+  
+ # track_info <- map_df(album_info$album_uri, function(x) {
+   print(glimpse(allArtistsData()$allAlbum_info))
+   #print(glimpse(allArtistsData()))
+    print(allArtistsData()$allAlbum_info$album_uri)
+    print(artistData()$artist_img)  # 2 in radioheads case witht the second the trbute band
+    track_info <- map_df(allArtistsData()$allAlbum_info$album_uri, function(x) {
+    tracks <- GET(paste0('https://api.spotify.com/v1/albums/', x, '/tracks')) %>%
+      content %>%
+      .$items
+     
+    uris <- map(1:length(tracks), function(z) {
+      gsub('spotify:track:', '', tracks[z][[1]]$uri)
+    }) %>% unlist %>% paste0(collapse=',')
+     
+    res <- GET(paste0('https://api.spotify.com/v1/audio-features/?ids=', uris),
+               query = list(access_token = access_token)) %>% content %>% .$audio_features
+    df <- unlist(res) %>%
+      matrix(nrow = length(res), byrow = T) %>%
+      as.data.frame(stringsAsFactors = F)
+    names(df) <- names(res[[1]])
+    df <- df %>%
+      mutate(album_uri = x,
+             track_number = row_number()) %>%
+      rowwise %>%
+      mutate(track_name = tracks[[track_number]]$name) %>%
+      ungroup %>%
+      #left_join(album_info, by = 'album_uri') %>%
+      left_join(allArtistsData()$allAlbum_info, by = 'album_uri') %>%
+      rename(track_uri = id) %>%
+      select(-c(type, track_href, analysis_url, uri))
+    return(df) ## works to here
+  }) %>%
+#  mutate(artist_img = artist_info$artist_img) %>%
+#       mutate(artist_img =  artistData()$artist_img) %>% removed , 'artist_img' from list below - could add [1]?
+    mutate_at(c('album_uri', 'track_uri', 'album_release_date', 'track_name', 'album_name'), funs(as.character)) %>%
+    mutate_at(c('danceability', 'energy', 'key', 'loudness', 'mode', 'speechiness', 'acousticness', 'album_release_year',
+                'instrumentalness', 'liveness', 'valence', 'tempo', 'duration_ms', 'time_signature', 'track_number'), funs(as.numeric(gsub('[^0-9.-]+', '', as.character(.))))) # for some reason parse_number() from readr doesn't work here
+     write_csv(track_info,"beyonceTrackInfo.csv")
+  return(track_info)
+   })
+
+ 
+ output$tracksTable <- DT::renderDataTable({
+  tracksData() %>%
+                         DT::datatable(class='compact stripe hover row-border order-column',
+                                       rownames=FALSE,options= list(paging = TRUE, searching = TRUE,info=FALSE))
+})
+
+DT::dataTableOutput("tracksTable")
+
+```
+
+
+```{r}
+
+ output$tracksPlot <- renderPlotly({
+   nms <- row.names(tracksData())
+   print(glimpse(tracksData()))
+  tracksData() %>%
+       plot_ly(x=~album_release_date,y=~danceability, key= nms, source = "tracks") %>% 
+  add_markers(hoverinfo="text", name="The Artist",
+              text=~paste0(album_name,
+                           "<br>",track_name,
+                           "<br>",danceability)) %>% 
+  layout(title="BDanceabiity<br>Hover for Info. Click for Video",
+         xaxis=list(title="",showticklabels=FALSE),
+         yaxis=list(title="Danceability"))%>%
+  config(displayModeBar = F, showLink = F)
+})
+
+plotlyOutput("tracksPlot")
+ 
+
+```
+
+Def could do more with this info
+
+
+```{r danceability, warning=FALSE, message=FALSE}
+
+
+# THIS WORKS
+# nms <- row.names(bey) #chr [1:145]
+# 
+# output$trackPlot <- renderPlotly({
+#   subplot(
+# bey %>% 
+#   plot_ly(x=~album_release_date,y=~danceability, key= nms) %>% 
+#   add_markers(hoverinfo="text", name="Beyonce",
+#               text=~paste0(album_name,
+#                            "<br>",track_name,
+#                            "<br>",danceability)) %>% 
+#   layout(title="Beyonce - Danceabiity<br>Hover for Info. Click for Video",
+#          xaxis=list(title="",showticklabels=FALSE),
+#          yaxis=list(title="Danceability"))%>%
+#   config(displayModeBar = F, showLink = F)
+# ,
+# rh %>% 
+#   plot_ly(x=~album_release_date,y=~danceability) %>% 
+#   add_markers(hoverinfo="text", name="Radiohead",
+#               text=~paste0(album_name, 
+#                            "<br>",track_name,
+#                            "<br>",danceability)) %>% 
+#   layout(title="Danceabiity<br>Hover for Info. Click for Video",
+#          xaxis=list(title="",showticklabels=FALSE),
+#          yaxis=list(title="Danceability"))%>%
+#   config(displayModeBar = F, showLink = F),
+# nrows=2
+# )
+# })
+# 
+# plotlyOutput("trackPlot")
+
+
+
+```
+
+
+
+```{r video, warning=FALSE, message=FALSE}
+
+output$video <- renderUI({
+  
+  d <- event_data("plotly_click", source = "tracks")
+  print(d)
+  print(d$key)
+  s <- as.integer(d$key)
+  
+  song  <- paste(tracksData()$artist[s],tracksData()$track_name[s],sep="+")
+  song  <- str_replace_all(song," ","+")
+  
+  print(song)
+  
+   ytURL <- paste0("https://www.youtube.com/results?search_query=",song)
+   
+   print(ytURL) #
+ 
+ ytHTML <- read_html(ytURL)
+ 
+ print(ytHTML)
+ 
+ 
+ link <- ytHTML %>% # dpwnloads all the html
+   html_nodes( "h3 a" ) %>%
+   html_attr("href")
+ 
+  print('link')
+# print(link)
+ 
+ if (length(link)>0) {
+   theLink <- link[[1]]
+ } else {
+   theLink <- NA
+ }
+  theLink <- str_split(theLink,"=")[[1]][2]
+ print(theLink)
+  
+  embed_youtube(id = theLink,width = 300)
+  })
+
+  uiOutput("video")
+
+
+
+
+
+
+```
+
+```{r spotify, warning=FALSE, message=FALSE}
+
+# theArtist <- "Adele"
+#   artist_info <- get_artists(theArtist)  
+# 
+# str(artist_info) 
+# 
+# test <- artist_info %>% 
+#   filter(artist_name == theArtist)
+# 
+# 
+# # hack if name is not quite  correct eg Beyonce with accent
+# if (nrow(test)==0) {
+# artist_info <-  artist_info %>% 
+#   head(1)
+# } else {
+# artist_info <-   artist_info %>% 
+#   filter(artist_name == theArtist)
+# }
+# 
+# 
+# 
+# album_info <- get_albums(artist_info$artist_uri)
+# 
+# str(album_info)
+# 
+# album_info %>% 
+#   DT::datatable(class='compact stripe hover row-border order-column',
+#                 selection="mutiple",rownames=FALSE,options= list(paging = FALSE, searching = FALSE,info=FALSE))
+# 
+# 
+# 
+# #non_studio_albums <- c('TKOL RMX 1234567', 'In Rainbows Disk 2', 'Com Lag: 2+2=5', 'I Might Be Wrong')
+# album_info <- filter(album_info, !album_name %in% non_studio_albums)
+# 
+# 
+# 
+# 
+# spotify_df <- get_tracks(artist_info, album_info)
+# 
+# glimpse(spotify_df)
+
+```
+
+
+
+```{r genius, warning=FALSE, message=FALSE}
+
+# token <- 'jL8qZ-Msjj83jlFP8EUmKKP5ZFAw8g3wDPjRz5TvmzwcGCB3ZCMVebsvpbNMsLGQ'
+# 
+# genius_get_artists <- function(artist_name, n_results = 10) {
+#   baseURL <- 'https://api.genius.com/search?q=' 
+#   requestURL <- paste0(baseURL, gsub(' ', '%20', artist_name),
+#                        '&per_page=', n_results,
+#                        '&access_token=', token)
+#   
+#   res <- GET(requestURL) %>% content %>% .$response %>% .$hits
+#   
+#   map_df(1:length(res), function(x) {
+#     tmp <- res[[x]]$result$primary_artist
+#     list(
+#       artist_id = tmp$id,
+#       artist_name = tmp$name
+#     )
+#   }) %>% unique
+# }
+# 
+# genius_artists <- genius_get_artists(theArtist)
+# genius_artists
+# 
+# 
+# baseURL <- 'https://api.genius.com/artists/' 
+# requestURL <- paste0(baseURL, genius_artists$artist_id[1], '/songs')
+# 
+# track_lyric_urls <- list()
+# i <- 1
+# while (i > 0) {
+#   tmp <- GET(requestURL, query = list(access_token = token, per_page = 50, page = i)) %>% content %>% .$response
+#   track_lyric_urls <- c(track_lyric_urls, tmp$songs)
+#   if (!is.null(tmp$next_page)) {
+#     i <- tmp$next_page
+#   } else {
+#     break
+#   }
+# }
+# 
+# 
+# lyric_scraper <- function(url) {
+#   read_html(url) %>% 
+#     html_node('lyrics') %>% 
+#     html_text
+# }
+# 
+# ## This is what takes the time with 219 elements
+# genius_df <- map_df(1:length(track_lyric_urls), function(x) {
+#   lyrics <- lyric_scraper(track_lyric_urls[[x]]$url)
+#   # strip out non-lyric text and extra spaces
+#   lyrics <- str_replace_all(lyrics, '\\[(Verse [[:digit:]]|Chorus|Outro|Verse|Refrain|Hook|Bridge|Intro|Instrumental)\\]|[[:digit:]]', '')
+#   lyrics <- str_replace_all(lyrics, '\\n', ' ')
+#   lyrics <- str_replace_all(lyrics, '([A-Z])', ' \\1')
+#   lyrics <- str_replace_all(lyrics, ' {2,}', ' ')
+#   lyrics <- tolower(str_trim(lyrics))
+#   tots <- list(
+#     track_name = track_lyric_urls[[x]]$title,
+#     lyrics = lyrics
+#   )
+#   return(tots)
+# })
+# 
+# str(genius_df)
+# 
+# genius_df$track_name[genius_df$track_name == 'Packt Like Sardines in a Crushd Tin Box'] <- 'Packt Like Sardines in a Crushed Tin Box'
+# genius_df$track_name[genius_df$track_name == 'Weird Fishes/Arpeggi'] <- 'Weird Fishes/ Arpeggi'
+# genius_df$track_name[genius_df$track_name == 'A Punchup at a Wedding'] <- 'A Punch Up at a Wedding'
+# genius_df$track_name[genius_df$track_name == 'Dollars and Cents'] <- 'Dollars & Cents'
+# genius_df$track_name[genius_df$track_name == 'Bullet Proof...I Wish I Was'] <- 'Bullet Proof ... I Wish I was'
+# 
+# genius_df <- genius_df %>% 
+#   mutate(track_name_join = tolower(str_replace(track_name, '[[:punct:]]', ''))) %>% 
+#   filter(!duplicated(track_name_join)) %>% 
+#   select(-track_name)
+# 
+# track_df <- spotify_df %>%
+#   mutate(track_name_join = tolower(str_replace(track_name, '[[:punct:]]', ''))) %>%
+#   left_join(genius_df, by = 'track_name_join') %>%
+#   select(track_name, valence, duration_ms, lyrics, album_name, album_release_year, album_img)
+# 
+# str(track_df)
+
+```
+
+
+```{r sentiment,  warning=FALSE, message=FALSE}
+
+# track_df %>% 
+#   select(valence, track_name) %>%
+#   arrange(valence) %>% 
+#   slice(1:10)
+# 
+# 
+# sad_words <- sentiments %>% 
+#   filter(lexicon == 'nrc', sentiment == 'sadness') %>% 
+#   select(word) %>% 
+#   mutate(sad = T)
+# 
+# sent_df <- track_df %>% 
+#   unnest_tokens(word, lyrics) %>%
+#   anti_join(stop_words, by = 'word') %>%
+#   left_join(sad_words, by = 'word') %>%
+#   group_by(track_name) %>% 
+#   summarise(pct_sad = round(sum(sad, na.rm = T) / n(), 4),
+#             word_count = n()) %>% 
+#   ungroup
+# 
+# sent_df %>% 
+#   select(pct_sad, track_name) %>%
+#   arrange(-pct_sad) %>% 
+#   head(10)
+# 
+# 
+# track_df <- track_df %>% 
+#   left_join(sent_df, by = 'track_name') %>% 
+#   mutate_at(c('pct_sad', 'word_count'), funs(ifelse(is.na(.), 0, .))) %>% 
+#   mutate(lyrical_density = word_count / duration_ms * 1000,
+#          gloom_index = round(rescale(1 - ((1 - valence) + (pct_sad * (1 + lyrical_density))) / 2, to = c(1, 100)), 2))
+# 
+# 
+# track_df %>%
+#   select(gloom_index, track_name) %>%
+#   arrange(gloom_index) %>%
+#   head(10)
+
+
+
+```
+
+
+```{r gloom index}
+
+# plot_df <- track_df %>% 
+#   rowwise %>% 
+#   mutate(tooltip = paste0('<a style = "margin-right:', max(max(nchar(track_name), nchar(album_name)) * 7, 55), 'px">', # dynamic sizing
+#                           '<img src=', album_img, ' height="50" style="float:left;margin-right:5px">',
+#                           '<b>Album:</b> ', album_name,
+#                           '<br><b>Track:</b> ', track_name)) %>% 
+#   ungroup
+# 
+# avg_line <- plot_df %>% 
+#   group_by(album_release_year, album_name, album_img) %>% 
+#   summarise(avg = mean(gloom_index)) %>% 
+#   ungroup %>% 
+#   transmute(x = as.numeric(as.factor(album_release_year)), 
+#             y = avg,
+#             tooltip = paste0('<a style = "margin-right:55px">',
+#                              '<img src=', album_img, ' height="50" style="float:left;margin-right:5px">',
+#                              '<b>Album:</b> ', album_name,
+#                              '<br><b>Average Gloom Index:</b> ', round(avg, 2),
+#                              '</a>'))
+# plot_track_df <- plot_df %>% 
+#   mutate(tooltip = paste0(tooltip, '<br><b>Gloom Index:</b> ', gloom_index, '</a>'),
+#          album_number = as.numeric(as.factor(album_release_year))) %>% 
+#   ungroup
+# 
+# 
+# album_chart <- 
+#   hchart(plot_track_df, hcaes(x = as.numeric(as.factor(album_release_year)), y = gloom_index, group = album_name), type = 'scatter') %>% 
+#   hc_add_series(data = avg_line, type = 'line') %>% #'hc_add_series_df' is deprecated. Use 'hc_add_series' instead.
+# 
+#   hc_tooltip(formatter = JS(paste0("function() {return this.point.tooltip;}")), useHTML = T) %>% 
+#   hc_colors(c(sample(brewer.pal(n_distinct(track_df$album_name), 'Paired')), 'black')) %>% 
+#   hc_xAxis(title = list(text = 'Album'), labels = list(enabled = F)) %>% 
+#   hc_yAxis(max = 100, title = list(text = 'Gloom Index')) %>% 
+#   hc_title(text = 'Data Driven Depression') %>% 
+#   hc_subtitle(text = 'Radiohead song sadness by album') %>% 
+#   hc_add_theme(hc_theme_smpl())
+# album_chart$x$hc_opts$series[[10]]$name <- 'Album Averages'
+# album_chart
+# 
+
+
+
+```
