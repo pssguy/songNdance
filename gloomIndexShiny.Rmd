@@ -1,12 +1,23 @@
 ---
-title: "Gloom Index"
-output: html_notebook
+title: "Spotify"
+output:
+  html_document:
+    css: style.css
 runtime: shiny
 ---
 
-This blah blah blah
+I have consistently been interested in assessing music information in R: see. for example my - somewhat dormant -[charts dashboard](https://mytinyshinys.shinyapps.io/musicChartsFlexDB/)
 
-```{r, setup, warning=FALSE, message=FALSE}
+A recent, excellent, [blog post by RCharlie](http://rcharlie.com/2017-02-16-fitteR-happieR/#comment-3169008481) featuring the Spotify and Genius APIs to determine a 'Gloom Index' for Radiohead tracks piqued my interest. It also incorporates some illminating code using the purrr package
+
+My intention, initially at least, is just to use the Spotify, i.e. musical section of his work  and make it a Shiny app which will allow the full catalogue  to be accessed. I extend it to a few mdifferent outputs, particularly the ability to link to youtube videos of chosen tracks. 
+ Much of the code is a complete steal from RCharlie... hidden but I have, as usual, created an online notebook version which can be played with and the code downloaded for your own modification etc. You will need to obtain a 
+ 
+ 
+ ---
+
+```{r, setup, warning= FALSE, echo=FALSE}
+knitr::opts_chunk$set(eval=TRUE, echo=FALSE, error=FALSE, message= FALSE)
 library(httr)
 library(stringr)
 library(tidyverse)
@@ -21,24 +32,20 @@ library(shiny)
 library(vembedr)
 library(plotly)
 
-## couple of trackinfo by artists
-rh <- read_csv("radioheadTrackInfo.csv")
-bey <- read_csv("beyonceTrackInfo.csv")
 
 ```
 
 
-Here you can enter the artist and then select rows. For instance you will probably not want karaoke or tribute bands but may or may not wish to 
-include collaborations
+Firstly, enter the artist of interest and click the first button
 
-```{r artist, warning=FALSE, message=FALSE}
-# Select Artist
-
-
-textInput("artist","Enter Artist",value="David Bowie")
-actionButton(inputId="goArtist",label="Go")
+```{r artist, warning=FALSE}
+# Select Artist - 
 
 
+textInput("artist","Enter Artist or first few letters",value="", placeholder="e.g. Laura Nyro" )
+actionButton(inputId="goArtist",label="Get Artist Selection")
+
+hr()
   
   artistData <- eventReactive(input$goArtist,{
 
@@ -62,22 +69,27 @@ actionButton(inputId="goArtist",label="Go")
   
   output$artists <- DT::renderDataTable({
    artistData() %>%
-      select(artist=artist_name,artist_uri,artist_img) %>% 
+      #select(artist=artist_name,artist_uri,artist_img) %>% 
+      select(artist=artist_name) %>% 
   DT::datatable(class='compact stripe hover row-border order-column',
                 selection="multiple",rownames=FALSE,options= list(paging = FALSE, searching = FALSE,info=FALSE))
   })
-
+br()
   DT::dataTableOutput("artists")
-actionButton(inputId="goArtists",label="Go")
+br()
+actionButton(inputId="goArtists",label="Get Exact Artist(s)")
 
 
   
 ```  
 
 
-Looks good but only goes back so far? isssue with bowie spiders from mars
+Now select row(s) from the resultant table. For instance, you will probably not want karaoke or tribute bands but may or may not wish to include collaborations
 
-```{r albums, warning=FALSE, message=FALSE}
+---
+
+
+```{r albums, warning=FALSE}
 
 
 
@@ -136,22 +148,28 @@ album_info <-  map_df(1:length(albums$items), function(x) {
  
   
 
-# })
+
 
 output$albumTable <- DT::renderDataTable({
   allArtistsData()$allAlbum_info %>%
+    select(album=album_name) %>% 
                          DT::datatable(class='compact stripe hover row-border order-column',
                                        selection="multiple",rownames=FALSE,options= list(paging = FALSE, searching = FALSE,info=FALSE))
 })
 
 DT::dataTableOutput("albumTable")
-actionButton(inputId="goAlbums",label="Go")
+actionButton(inputId="goAlbums",label="Get Albums")
 
 ```
 
-Now select albums
 
-```{r tracks, warning=FALSE, message=FALSE}
+You may note that often not all albums from a specific artist are available. I'm guessing that reflects what is available on the music service
+
+If you want to EXCLUDE specific albums (e.g repeated compilations) then select them prior to pushing the button. The output will take a few seconds to arrive
+
+---
+
+```{r tracks, warning=FALSE}
 # Get Tracks
 #get_tracks <- function(artist_info, album_info) {
 #spotify_df <- get_tracks(artist_info, album_info)
@@ -165,11 +183,7 @@ Now select albums
                        body = list(grant_type='client_credentials'),
                        encode = 'form', httr::config(http_version=2)) %>% content %>% .$access_token
   
- # track_info <- map_df(album_info$album_uri, function(x) {
-   print(glimpse(allArtistsData()$allAlbum_info))
-   #print(glimpse(allArtistsData()))
-    print(allArtistsData()$allAlbum_info$album_uri)
-    print(artistData()$artist_img)  # 2 in radioheads case witht the second the trbute band
+
     track_info <- map_df(allArtistsData()$allAlbum_info$album_uri, function(x) {
     tracks <- GET(paste0('https://api.spotify.com/v1/albums/', x, '/tracks')) %>%
       content %>%
@@ -209,6 +223,7 @@ Now select albums
  
  output$tracksTable <- DT::renderDataTable({
   tracksData() %>%
+     select(artist,album=album_name,release=album_release_year, track=track_name,danceability,instrumentalness,valence)  %>% 
                          DT::datatable(class='compact stripe hover row-border order-column',
                                        rownames=FALSE,options= list(paging = TRUE, searching = TRUE,info=FALSE))
 })
@@ -217,21 +232,59 @@ DT::dataTableOutput("tracksTable")
 
 ```
 
+---
 
-```{r}
+Firstly, you will see a searchable, sortable table of all the tracks. Included are three of Spotify's metrics. You can read more about them [here](https://developer.spotify.com/web-api/get-audio-features/)
+
+---
+
+Switch between the audio features, as desired. 
+
+> Tracks with high valence sound more positive (e.g. happy, cheerful, euphoric), while tracks with low valence sound more negative (e.g. sad, depressed, angry).
+
+> Spotify API definition
+
+
+
+```{r, warning=FALSE}
+
+radioButtons(inputId="metric",label=NULL,choices=c("Danceability","Instrumentalness","Valence"), inline=TRUE)
+hr()
 
  output$tracksPlot <- renderPlotly({
    nms <- row.names(tracksData())
-   print(glimpse(tracksData()))
-  tracksData() %>%
+ 
+ #  choice <- "Danceability"
+   print(input$metric)
+   if (input$metric== "Danceability") {
+  p <-  tracksData() %>%
+    filter(danceability>=0) %>% 
        plot_ly(x=~album_release_date,y=~danceability, key= nms, source = "tracks") %>% 
-  add_markers(hoverinfo="text", name="The Artist",
+       add_markers(hoverinfo="text", name="The Artist",
               text=~paste0(album_name,
                            "<br>",track_name,
-                           "<br>",danceability)) %>% 
-  layout(title="BDanceabiity<br>Hover for Info. Click for Video",
+                           "<br>",danceability))
+   } else if (input$metric== "Instrumentalnes") {
+  p <-  tracksData() %>%
+    filter(instrumentalnes>=0) %>% 
+       plot_ly(x=~album_release_date,y=~instrumentalnes, key= nms, source = "tracks") %>% 
+       add_markers(hoverinfo="text", name="The Artist",
+              text=~paste0(album_name,
+                           "<br>",track_name,
+                           "<br>",instrumentalness))
+   } else {
+  p <-  tracksData() %>%
+    filter(valence>=0) %>% 
+       plot_ly(x=~album_release_date,y=~valence, key= nms, source = "tracks") %>% 
+       add_markers(hoverinfo="text", name="The Artist",
+              text=~paste0(album_name,
+                           "<br>",track_name,
+                           "<br>",valence))
+   } 
+  p %>% 
+  layout(title=paste0(input$metric,"<br>Hover for Info. Click for Video"),
          xaxis=list(title="",showticklabels=FALSE),
-         yaxis=list(title="Danceability"))%>%
+         yaxis=list(title=input$metric))%>%
   config(displayModeBar = F, showLink = F)
 })
 
@@ -240,7 +293,9 @@ plotlyOutput("tracksPlot")
 
 ```
 
-Def could do more with this info
+
+
+The albums are ordered by release date. Zoom in, if desired, hover points to view details and click to watch the first listed version on youtube, if available. Full screening is an option
 
 
 ```{r danceability, warning=FALSE, message=FALSE}
@@ -284,23 +339,24 @@ Def could do more with this info
 
 
 
-```{r video, warning=FALSE, message=FALSE}
+```{r video, warning=FALSE}
+
+
 
 output$video <- renderUI({
   
   d <- event_data("plotly_click", source = "tracks")
-  print(d)
-  print(d$key)
+ 
   s <- as.integer(d$key)
   
   song  <- paste(tracksData()$artist[s],tracksData()$track_name[s],sep="+")
   song  <- str_replace_all(song," ","+")
   
-  print(song)
+ 
   
    ytURL <- paste0("https://www.youtube.com/results?search_query=",song)
    
-   print(ytURL) #
+  
  
  ytHTML <- read_html(ytURL)
  
@@ -311,8 +367,7 @@ output$video <- renderUI({
    html_nodes( "h3 a" ) %>%
    html_attr("href")
  
-  print('link')
-# print(link)
+ 
  
  if (length(link)>0) {
    theLink <- link[[1]]
