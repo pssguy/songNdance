@@ -324,11 +324,11 @@ output$video <- renderUI({
   # retrieve the clicked point, translate to artist/song combo
   d <- event_data("plotly_click", source = "tracks")
    s <- as.integer(d$key)
-  
+
   song  <- paste(tracksData()$artist[s],tracksData()$track_name[s],sep="+")
   song  <- str_replace_all(song," ","+")
   
- 
+  
  # navigate to correct index page on youtube and select first video link 
    ytURL <- paste0("https://www.youtube.com/results?search_query=",song)
  
@@ -355,36 +355,68 @@ output$video <- renderUI({
 
 ```
 
+For many songs, the lyric is also available
+
 ```{r}
 
 output$lyric <- renderUI({
   
-  song <- "Love Train"
-songUrl <- str_replace(song," ","%20")
+  # obtain song title from plot click
+  d <- event_data("plotly_click", source = "tracks")
+   s <- as.integer(d$key)
+ 
+  song  <- tracksData()$track_name[s]
+ 
+
+  
+songUrl <- str_replace_all(song," ","%20")
 
 lyricURL <- paste0("https://www.google.ca/search?q=",songUrl,"%20lyrics&rct=j")
 
-
-
+# scrapes appropriate url for all hrefs 
 urls <- read_html(lyricURL) %>% 
   html_nodes("a") %>% 
   html_attr("href")
 
 
-x <- which(map_lgl(urls, ~ str_sub(.x,1,29)=="https://play.google.com/music")==TRUE) #26
+# Discover which is relevant url out of many
+x <- which(map_lgl(urls, ~ str_sub(.x,1,29)=="https://play.google.com/music")==TRUE) 
 
+# This attempts to cater for instances where title has an addition e.g "- Ramastered""
+if (length(x)==0) {
+  
+  song  <- str_trim(str_split(song,"-")[[1]][1])
+
+  
+songUrl <- str_replace_all(song," ","%20")
+
+lyricURL <- paste0("https://www.google.ca/search?q=",songUrl,"%20lyrics&rct=j")
+
+urls <- read_html(lyricURL) %>% 
+  html_nodes("a") %>% 
+  html_attr("href")
+
+x <- which(map_lgl(urls, ~ str_sub(.x,1,29)=="https://play.google.com/music")==TRUE)
+  
+}
+
+# now obtain the full lyric from Google Music - or print failure
+if (length(x)>0) {
 fullLyric <- urls[x]
 
 outcome <-fullLyric %>% 
   read_html() %>% 
   html_nodes('p') %>% 
   paste(collapse = '\n')
+} else {
+  outcome <- "No Lyrics on Google Music available"
+}
 
  
 HTML(outcome)
   
 })
-
+br()
 uiOutput("lyric")
 
 
