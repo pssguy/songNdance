@@ -1,0 +1,396 @@
+---
+title: "Spotify"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+runtime: shiny    
+---
+
+````{r, setup, warning= FALSE, echo=FALSE, error=FALSE, message= FALSE}
+knitr::opts_chunk$set(eval=TRUE, echo=FALSE, error=FALSE, message= FALSE)
+
+#Load required libraries
+
+library(httr)
+library(stringr)
+library(tidyverse)
+library(lubridate)
+library(rvest)
+library(tidytext)
+library(scales)
+library(RColorBrewer)
+library(highcharter)
+library(DT)
+library(shiny)
+library(vembedr)
+library(plotly)
+
+```
+
+```{r sp_authorization,  echo=FALSE}
+client_id <- 'a749814f307b45fc9144e5ab6a0436e1'
+  client_secret <- '7beb57b32692463589c0491d9e35f60d'
+  access_token <- POST('https://accounts.spotify.com/api/token',
+                       accept_json(), authenticate(client_id, client_secret),
+                       body = list(grant_type='client_credentials'),
+                       encode = 'form', httr::config(http_version=2)) %>% content %>% .$access_token
+
+
+```
+
+Inputs {.sidebar data-width=250}
+-------------------------------------
+
+
+
+```{r artist, warning=FALSE}
+
+# Select Artist  
+
+textInput("artist","Enter Artist or first few letters",value="", placeholder="e.g. Laura Nyro" )
+actionButton(inputId="goArtist",label="Get Artist Selection")
+
+hr()
+  
+  artistData <- eventReactive(input$goArtist,{
+
+    req(input$artist)
+     req(input$artist)
+  # Search Spotify API for artist name
+  res <- GET('https://api.spotify.com/v1/search', query = list(q = input$artist, type = 'artist')) %>%
+    content %>% .$artists %>% .$items
+
+  # Clean response and combine all returned artists into a dataframe
+  artists <- map_df(seq_len(length(res)), function(x) {
+    list(
+      artist_name = res[[x]]$name,
+      artist_uri = str_replace(res[[x]]$uri, 'spotify:artist:', ''), # remove meta info from the uri string
+      artist_img = ifelse(length(res[[x]]$images) > 0, res[[x]]$images[[1]]$url, NA)
+    )
+  })
+
+   return(artists)
+  })
+  
+  output$artists <- DT::renderDataTable({
+   artistData() %>%
+      #select(artist=artist_name,artist_uri,artist_img) %>% 
+      select(artist=artist_name) %>% 
+  DT::datatable(class='compact stripe hover row-border order-column',
+                selection="multiple",rownames=FALSE,options= list(paging = TRUE, searching = FALSE,info=FALSE))
+  })
+br()
+  DT::dataTableOutput("artists")
+br()
+actionButton(inputId="goArtists",label="Get Exact Artist(s)")
+
+
+
+#Select Albums
+
+
+ allArtistsData <- eventReactive(input$goArtists,{
+
+   req(input$artists_rows_selected)
+  s = as.integer(input$artists_rows_selected)
+
+ 
+  ## should purrr this, presumably
+  for (i in seq_along(s)) {
+
+    j <- s[i]
+  
+ albums <- GET(paste0('https://api.spotify.com/v1/artists/', artistData()$artist_uri[j],'/albums')) %>% content
+
+
+album_info <-  map_df(1:length(albums$items), function(x) {
+    tmp <- albums$items[[x]]
+    
+    # Make sure the album_type is not "single"
+    if (tmp$album_type == 'album') {
+      data.frame(album_uri = str_replace(tmp$uri, 'spotify:album:', ''),
+                 album_name = str_replace_all(tmp$name, '\'', ''),
+                 album_img = albums$items[[x]]$images[[1]]$url,
+                 stringsAsFactors = F) %>%
+        mutate(album_release_date = GET(paste0('https://api.spotify.com/v1/albums/', str_replace(tmp$uri, 'spotify:album:', ''))) %>% content %>% .$release_date, # you need a separate call to on "albums" to get release date.
+               album_release_year = ifelse(nchar(album_release_date) == 4, year(as.Date(album_release_date, '%Y')), year(as.Date(album_release_date, '%Y-%m-%d'))) # not all album_release_dates have months, so I created album_release year for sorting
+        )
+    } else {
+      NULL
+    }
+    
+  }) %>% filter(!duplicated(tolower(album_name))) %>%  # Sometimes there are multiple versions (just with different capitalizations) of the same album
+    arrange(album_release_year) %>% 
+   mutate(artist=artistData()$artist_name[j])
+
+
+
+  if(i!=1) {
+    allAlbum_info <- rbind(allAlbum_info,album_info)
+  } else {
+     allAlbum_info <- album_info
+  }
+ }  
+ 
+    info=list(allAlbum_info=allAlbum_info)
+
+  return(info)
+ 
+ })
+ 
+ 
+  
+
+
+
+output$albumTable <- DT::renderDataTable({
+  allArtistsData()$allAlbum_info %>%
+    select(album=album_name) %>% 
+                         DT::datatable(class='compact stripe hover row-border order-column',
+                                       selection="multiple",rownames=FALSE,options= list(paging = TRUE, searching = FALSE,info=FALSE))
+})
+
+DT::dataTableOutput("albumTable")
+actionButton(inputId="goAlbums",label="Get Albums")
+  
+```  
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Table
+
+```{r}
+# Get Tracks
+
+  
+   tracksData <- eventReactive(input$goAlbums,{
+
+     
+     selectedAlbums <- allArtistsData()$allAlbum_info$album_uri
+     
+     # remove any albums not requireed in further processing
+     if (length(input$albumTable_rows_selected)>0) {
+       
+       t = as.integer(input$albumTable_rows_selected)
+        remove <- selectedAlbums[t]
+  selectedAlbums <- setdiff(selectedAlbums,remove)
+     }
+
+    track_info <- map_df(selectedAlbums, function(x) {
+    tracks <- GET(paste0('https://api.spotify.com/v1/albums/', x, '/tracks')) %>%
+      content %>%
+      .$items
+     
+    uris <- map(1:length(tracks), function(z) {
+      gsub('spotify:track:', '', tracks[z][[1]]$uri)
+    }) %>% unlist %>% paste0(collapse=',')
+     
+    res <- GET(paste0('https://api.spotify.com/v1/audio-features/?ids=', uris),
+               query = list(access_token = access_token)) %>% content %>% .$audio_features
+    df <- unlist(res) %>%
+      matrix(nrow = length(res), byrow = T) %>%
+      as.data.frame(stringsAsFactors = F)
+    names(df) <- names(res[[1]])
+    df <- df %>%
+      mutate(album_uri = x,
+             track_number = row_number()) %>%
+      rowwise %>%
+      mutate(track_name = tracks[[track_number]]$name) %>%
+      ungroup %>%
+      #left_join(album_info, by = 'album_uri') %>%
+      left_join(allArtistsData()$allAlbum_info, by = 'album_uri') %>%
+      rename(track_uri = id) %>%
+      select(-c(type, track_href, analysis_url, uri))
+    return(df) ## works to here
+  }) %>%
+#  mutate(artist_img = artist_info$artist_img) %>%
+#       mutate(artist_img =  artistData()$artist_img) %>% removed , 'artist_img' from list below - could add [1]?
+    mutate_at(c('album_uri', 'track_uri', 'album_release_date', 'track_name', 'album_name'), funs(as.character)) %>%
+    mutate_at(c('danceability', 'energy', 'key', 'loudness', 'mode', 'speechiness', 'acousticness', 'album_release_year',
+                'instrumentalness', 'liveness', 'valence', 'tempo', 'duration_ms', 'time_signature', 'track_number'), funs(as.numeric(gsub('[^0-9.-]+', '', as.character(.))))) # for some reason parse_number() from readr doesn't work here
+     write_csv(track_info,"beyonceTrackInfo.csv")
+  return(track_info)
+   })
+
+ 
+ output$tracksTable <- DT::renderDataTable({
+  tracksData() %>%
+     select(artist,album=album_name,release=album_release_year, track=track_name,danceability,instrumentalness,valence)  %>% 
+                         DT::datatable(class='compact stripe hover row-border order-column',
+                                       rownames=FALSE,options= list(paging = TRUE, searching = TRUE,info=FALSE))
+})
+
+DT::dataTableOutput("tracksTable")
+```
+
+### Chart 
+
+```{r, warning=FALSE}
+
+radioButtons(inputId="metric",label=NULL,choices=c("Danceability","Instrumentalness","Valence"), inline=TRUE)
+hr()
+
+ output$tracksPlot <- renderPlotly({
+   # set for interactivity
+   nms <- row.names(tracksData())
+ 
+ #  choice <- "Danceability"
+  
+   if (input$metric== "Danceability") {
+  p <-  tracksData() %>%
+    filter(danceability>=0) %>% 
+       plot_ly(x=~album_release_date,y=~danceability, key= nms, source = "tracks") %>% 
+       add_markers(hoverinfo="text", name="The Artist",
+              text=~paste0(album_name,
+                           "<br>",track_name,
+                           "<br>",danceability))
+   } else if (input$metric== "Instrumentalnes") {
+  p <-  tracksData() %>%
+    filter(instrumentalnes>=0) %>% 
+       plot_ly(x=~album_release_date,y=~instrumentalnes, key= nms, source = "tracks") %>% 
+       add_markers(hoverinfo="text", name="The Artist",
+              text=~paste0(album_name,
+                           "<br>",track_name,
+                           "<br>",instrumentalness))
+   } else {
+  p <-  tracksData() %>%
+    filter(valence>=0) %>% 
+       plot_ly(x=~album_release_date,y=~valence, key= nms, source = "tracks") %>% 
+       add_markers(hoverinfo="text", name="The Artist",
+              text=~paste0(album_name,
+                           "<br>",track_name,
+                           "<br>",valence))
+   } 
+  p %>% 
+  layout(title=paste0(input$metric,"<br>Hover for Info. Click for Video"),
+         xaxis=list(title="",showticklabels=FALSE),
+         yaxis=list(title=input$metric))%>%
+  config(displayModeBar = F, showLink = F)
+})
+
+plotlyOutput("tracksPlot")
+ 
+
+```
+
+Column {data-width=250}
+-----------------------------------------------------------------------
+
+
+### Video
+
+```{r video, warning=FALSE}
+
+
+
+output$video <- renderUI({
+  
+  # retrieve the clicked point, translate to artist/song combo
+  d <- event_data("plotly_click", source = "tracks")
+   s <- as.integer(d$key)
+
+  song  <- paste(tracksData()$artist[s],tracksData()$track_name[s],sep="+")
+  song  <- str_replace_all(song," ","+")
+  song  <- str_split(song,"-")[[1]][1]
+  
+  print(song)
+ 
+ # navigate to correct index page on youtube and select first video link 
+   ytURL <- paste0("https://www.youtube.com/results?search_query=",song)
+ 
+ 
+ ytHTML <- read_html(ytURL)
+ link <- ytHTML %>% # dpwnloads all the html
+   html_nodes( "h3 a" ) %>%
+   html_attr("href")
+ 
+ 
+
+ 
+
+ if (length(link)>0) {
+   theLink <- link[[1]]
+ } else {
+   theLink <- NA
+ }
+  theLink <- str_split(theLink,"=")[[1]][2]
+
+  
+  # using the vembedr package embed the resultant video
+  embed_youtube(id = theLink,width = 450)
+  })
+
+  uiOutput("video")
+
+
+```
+
+### Lyric 
+
+```{r}
+
+output$lyric <- renderUI({
+  
+  req(event_data("plotly_click", source = "tracks"))
+  # obtain song title from plot click
+  d <- event_data("plotly_click", source = "tracks")
+   s <- as.integer(d$key)
+ 
+  song  <- tracksData()$track_name[s]
+ 
+
+  
+songUrl <- str_replace_all(song," ","%20")
+
+lyricURL <- paste0("https://www.google.ca/search?q=",songUrl,"%20lyrics&rct=j")
+
+# scrapes appropriate url for all hrefs 
+urls <- read_html(lyricURL) %>% 
+  html_nodes("a") %>% 
+  html_attr("href")
+
+
+# Discover which is relevant url out of many
+x <- which(map_lgl(urls, ~ str_sub(.x,1,29)=="https://play.google.com/music")==TRUE) 
+
+# This attempts to cater for instances where title has an addition e.g "- Ramastered""
+if (length(x)==0) {
+  
+  song  <- str_trim(str_split(song,"-")[[1]][1])
+
+  
+songUrl <- str_replace_all(song," ","%20")
+
+lyricURL <- paste0("https://www.google.ca/search?q=",songUrl,"%20lyrics&rct=j")
+
+urls <- read_html(lyricURL) %>% 
+  html_nodes("a") %>% 
+  html_attr("href")
+
+x <- which(map_lgl(urls, ~ str_sub(.x,1,29)=="https://play.google.com/music")==TRUE)
+  
+}
+
+# now obtain the full lyric from Google Music - or print failure
+if (length(x)>0) {
+fullLyric <- urls[x]
+
+outcome <-fullLyric %>% 
+  read_html() %>% 
+  html_nodes('p') %>% 
+  paste(collapse = '\n')
+} else {
+  outcome <- "No Lyrics on Google Music available"
+}
+
+ 
+HTML(outcome)
+  
+})
+br()
+uiOutput("lyric")
+
+
+```
