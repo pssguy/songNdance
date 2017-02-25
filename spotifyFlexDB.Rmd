@@ -1,5 +1,5 @@
 ---
-title: "Spotify"
+title: "myTinyShinys  - Analysis of any Spotify Track with video and lyric, if available"
 output: 
   flexdashboard::flex_dashboard:
     orientation: columns
@@ -332,7 +332,7 @@ lengthMenu = c(5, 10, 15, 20)
 DT::dataTableOutput("tracksTable")
 ```
 
-### Chart 
+### Chart Ordered by Date of Release (Valence is measure of positivity)
 
 ```{r, warning=FALSE}
 
@@ -386,7 +386,7 @@ Column {data-width=250}
 -----------------------------------------------------------------------
 
 
-### Video
+### Video (1st on youtube - May show Studio version even if Live requested)
 
 ```{r video, warning=FALSE}
 
@@ -435,7 +435,7 @@ output$video <- renderUI({
 
 ```
 
-### Lyric 
+### Lyric - Google music version (contact them with corrections!)
 
 ```{r}
 
