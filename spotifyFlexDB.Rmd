@@ -4,6 +4,9 @@ output:
   flexdashboard::flex_dashboard:
     orientation: columns
     vertical_layout: fill
+    social: ["twitter", "facebook", "google-plus","linkedin", "pinterest"]
+    css: styles.css
+    source_code: embed
 runtime: shiny    
 ---
 
@@ -29,6 +32,7 @@ library(plotly)
 ```
 
 ```{r sp_authorization,  echo=FALSE}
+# Please obtain own authorization if using code
 client_id <- 'a749814f307b45fc9144e5ab6a0436e1'
   client_secret <- '7beb57b32692463589c0491d9e35f60d'
   access_token <- POST('https://accounts.spotify.com/api/token',
@@ -45,6 +49,11 @@ Inputs {.sidebar data-width=250}
 
 
 ```{r artist, warning=FALSE}
+
+# Introduction
+includeMarkdown("info.md")
+hr()
+
 
 # Select Artist
 
@@ -210,7 +219,7 @@ scroller = TRUE
 
 DT::dataTableOutput("albumTable")
 br()
-actionButton(inputId = "goAlbums", label = "Get Tracks (takes seconds")
+actionButton(inputId = "goAlbums", label = "Get Tracks (takes seconds)")
   
 ```  
 
@@ -336,7 +345,7 @@ DT::dataTableOutput("tracksTable")
 
 ```{r, warning=FALSE}
 
-radioButtons(inputId="metric",label=NULL,choices=c("Danceability","Instrumentalness","Valence"), inline=TRUE)
+radioButtons(inputId="metric",label=NULL,choices=c("Danceability","Instrumentalness","Valence","Track Order"), inline=TRUE)
 hr()
 
  output$tracksPlot <- renderPlotly({
@@ -350,28 +359,36 @@ hr()
     filter(danceability>=0) %>% 
        plot_ly(x=~album_release_date,y=~danceability, key= nms, source = "tracks") %>% 
        add_markers(hoverinfo="text", name="The Artist",
-              text=~paste0(album_name,
+              text=~paste0(album_name," - ",album_release_year,
                            "<br>",track_name,
                            "<br>",danceability))
-   } else if (input$metric== "Instrumentalnes") {
+   } else if (input$metric== "Instrumentalness") {
   p <-  tracksData() %>%
-    filter(instrumentalnes>=0) %>% 
-       plot_ly(x=~album_release_date,y=~instrumentalnes, key= nms, source = "tracks") %>% 
+    filter(instrumentalness>=0) %>% 
+       plot_ly(x=~album_release_date,y=~instrumentalness, key= nms, source = "tracks") %>% 
        add_markers(hoverinfo="text", name="The Artist",
-              text=~paste0(album_name,
+              text=~paste0(album_name," - ",album_release_year,
                            "<br>",track_name,
                            "<br>",instrumentalness))
-   } else {
+   } else if (input$metric== "Valence") {
   p <-  tracksData() %>%
     filter(valence>=0) %>% 
        plot_ly(x=~album_release_date,y=~valence, key= nms, source = "tracks") %>% 
        add_markers(hoverinfo="text", name="The Artist",
-              text=~paste0(album_name,
+              text=~paste0(album_name," - ",album_release_year,
                            "<br>",track_name,
                            "<br>",valence))
+   } else  {
+  p <-  tracksData() %>%
+        
+       plot_ly(x=~album_release_date,y=~track_number, key= nms, source = "tracks") %>% 
+       add_markers(hoverinfo="text", name="The Artist",
+              text=~paste0(album_name," - ",album_release_year,
+                           "<br>",track_name))
    } 
+   
   p %>% 
-  layout(title=paste0(input$metric,"<br>Hover for Info. Click for Video"),
+  layout(title=paste0(input$metric,"<br>Hover for Info. Click for Video/Lyric"),
          xaxis=list(title="",showticklabels=FALSE),
          yaxis=list(title=input$metric))%>%
   config(displayModeBar = F, showLink = F)
