@@ -1,0 +1,36 @@
+/* copied from wikipedia */
+
+
+#wikiCard { overflow: auto; }
+
+body { background-color: #E6E6FA;}
+
+
+.navbar-logo {
+    margin-top: 6px;
+}
+
+.btn {
+  font: bold 1em/1.5em sans-serif;
+  text-decoration: none;
+  color: white;
+  padding: 0.5em 1em;
+  background: #b8c6df; /* old browsers */
+  background: -moz-linear-gradient(top, #b8c6df 0%, #6d88b7 100%); /* firefox */
+  background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#b8c6df), color-stop(100%,#6d88b7)); /* webkit */
+  filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#b8c6df', endColorstr='#6d88b7',GradientType=0 ); /* ie */
+  zoom: 1;
+  border-radius: 10px;
+  -moz-border-radius: 10px;
+  -webkit-border-radius: 10px;
+  -box-shadow: 0 1px 3px  rgba(0,0,0,0.5);
+  -moz-box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  -webkit-box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  text-shadow: 0 -1px 1px rgba(0,0,0,0.25);
+}
+a.button:hover {
+  background: #d8e6ff; /* old browsers */
+  background: -moz-linear-gradient(top, #d8e6ff 0%, #8da8d7 100%); /* firefox */
+  background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#d8e6ff), color-stop(100%,#8da8d7)); /* webkit */
+  filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#d8e6ff', endColorstr='#8da8d7',GradientType=0 ); /* ie */
+}
