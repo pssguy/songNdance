@@ -1,9 +1,10 @@
 ---
-title: "myTinyShinys  - Analysis of any Spotify Track with video and lyric, if available"
+title: "Spotify - Track Analyses, Videos and Lyrics"
 output: 
   flexdashboard::flex_dashboard:
+    logo: "logo.png"
     orientation: columns
-    vertical_layout: fill
+    vertical_layout: scroll
     social: ["twitter", "facebook", "google-plus","linkedin", "pinterest"]
     css: styles.css
     source_code: embed
@@ -93,7 +94,7 @@ artistData() %>%
 select(Choose_One_or_More = artist_name) %>%
 DT::datatable(
 class = 'compact stripe hover row-border order-column',
-extensions = 'Scroller',
+
 
 selection = "multiple",
 rownames = FALSE,
@@ -103,8 +104,7 @@ searching = FALSE,
 info = FALSE,
 deferRender = TRUE,
 scrollY = 200,
-scroller = TRUE,
-scrollX =FALSE
+scroller = TRUE
 )
 )
 })
@@ -200,7 +200,7 @@ select(Select_Unwanted_Albums = album_name) %>%
 DT::datatable(
 class = 'compact stripe hover row-border order-column',
 
-extensions = 'Scroller',
+
 
 selection = "multiple",
 rownames = FALSE,
@@ -314,13 +314,14 @@ return(track_info)
 
 output$tracksTable <- DT::renderDataTable({
 tracksData() %>%
+    mutate(minutes=round(duration_ms/60000,2)) %>% 
 select(
 artist,
 album = album_name,
 release = album_release_year,
 track = track_name,
+minutes,
 danceability,
-instrumentalness,
 valence
 )  %>%
 DT::datatable(
@@ -403,7 +404,7 @@ Column {data-width=250}
 -----------------------------------------------------------------------
 
 
-### Video (1st on youtube - May show Studio version even if Live requested)
+### Video (1st on youtube - Could be a surprise e.g. may show Studio version even if Live requested)
 
 ```{r video, warning=FALSE}
 
@@ -452,7 +453,7 @@ output$video <- renderUI({
 
 ```
 
-### Lyric - Google music version (contact them with corrections!)
+### Lyric - Google music version (contact them with corrections! Could be same title different lyric)
 
 ```{r}
 
