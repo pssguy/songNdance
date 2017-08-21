@@ -4,7 +4,7 @@ output:
   flexdashboard::flex_dashboard:
     logo: "logo.png"
     orientation: columns
-    vertical_layout: scroll
+    vertical_layout: fill
     social: ["twitter", "facebook", "google-plus","linkedin", "pinterest"]
     css: styles.css
     source_code: embed
@@ -29,6 +29,10 @@ library(DT)
 library(shiny)
 library(vembedr)
 library(plotly)
+library(bsplus)
+
+use_bs_tooltip()
+use_bs_popover()
 
 ```
 
@@ -41,6 +45,21 @@ client_id <- 'a749814f307b45fc9144e5ab6a0436e1'
                        body = list(grant_type='client_credentials'),
                        encode = 'form', httr::config(http_version=2)) %>% content %>% .$access_token
 
+  # removed as  error arising (probably not related thoughbut not sure why - vignette still works
+ #  # this creates a url but when inputting into browser window
+ #   enableBookmarking("url")
+ # # Error in RestoreContext initialization: Failed to parse URL parameter "albumTable_search"
+ #   
+ #   #This gives copyable version which enters beatles and artist selection but not album selection
+ #  enableBookmarking("server")
+ #   setBookmarkExclude(c("bm1")) #Error in setBookmarkExclude(c("bm1")) : attempt to apply non-function 2001-08-21
+ #   #setBookmarkExclude("bm1") didnt help
+ #  
+ #  # Trigger bookmarking 
+ #  observeEvent(input$bm1, {
+ #    session$doBookmark()
+ #  })
+ # 
 
 ```
 
@@ -61,8 +80,14 @@ hr()
 textInput("artist",
 "Enter Artist",
 value = "",
-placeholder = "e.g. Laura Nyro")
-actionButton(inputId = "goArtist", label = "Get Artist Selection")
+placeholder = "e.g. Laura Nyro") %>% 
+  shinyInput_label_embed(
+    shiny_iconlink() %>% 
+    bs_embed_tooltip(title="Need First or Last name")) # may be a limit on word count
+
+
+actionButton(inputId = "goArtist", label = "Get Artist Selection") 
+  
 
 hr()
 
@@ -72,7 +97,7 @@ req(input$artist)
 # Search Spotify API for artist name
 res <-
 GET('https://api.spotify.com/v1/search',
-query = list(q = input$artist, type = 'artist')) %>%
+query = list(q = input$artist, type = 'artist',access_token = access_token)) %>%
 content %>% .$artists %>% .$items
 
 # Clean response and combine all returned artists into a dataframe
@@ -112,6 +137,8 @@ br()
 DT::dataTableOutput("artists")
 br()
 actionButton(inputId = "goArtists", label = "Get Albums")
+# br()
+# bookmarkButton(id = "bm1") # await other issue resolution - currently only returns first table output
 
 ```
 
@@ -129,14 +156,26 @@ s = as.integer(input$artists_rows_selected)
 for (i in seq_along(s)) {
 j <- s[i]
 
+
+
+# albums <-
+# GET(
+# paste0(
+# 'https://api.spotify.com/v1/artists/',
+# artistData()$artist_uri[j],
+# '/albums'
+# )
+# ) %>% content
+
+## Error: argument is of length zero
+
 albums <-
 GET(
 paste0(
 'https://api.spotify.com/v1/artists/',
 artistData()$artist_uri[j],
 '/albums'
-)
-) %>% content
+), query = list(access_token = access_token)) %>% content
 
 
 album_info <-  map_df(1:length(albums$items), function(x) {
@@ -155,8 +194,8 @@ album_release_date = GET(
 paste0(
 'https://api.spotify.com/v1/albums/',
 str_replace(tmp$uri, 'spotify:album:', '')
-)
-) %>% content %>% .$release_date,
+), query = list(access_token = access_token))  %>%  # looks good
+ content %>% .$release_date,
 # you need a separate call to on "albums" to get release date.
 album_release_year = ifelse(
 nchar(album_release_date) == 4,
@@ -244,7 +283,7 @@ selectedAlbums <- setdiff(selectedAlbums, remove)
 
 track_info <- map_df(selectedAlbums, function(x) {
 tracks <-
-GET(paste0('https://api.spotify.com/v1/albums/', x, '/tracks')) %>%
+GET(paste0('https://api.spotify.com/v1/albums/', x, '/tracks'),query = list(access_token = access_token)) %>%
 content %>%
 .$items
 
