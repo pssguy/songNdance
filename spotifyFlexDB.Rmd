@@ -443,7 +443,7 @@ Column {data-width=250}
 -----------------------------------------------------------------------
 
 
-### Video (1st on youtube - Could be a surprise e.g. may show Studio version even if Live requested)
+### Video (1st on youtube - Could be a surprise e.g. may show Studio version even if Live requested or whole album)
 
 ```{r video, warning=FALSE}
 
@@ -460,18 +460,20 @@ output$video <- renderUI({
   song  <- str_replace_all(song," ","+")
   song  <- str_split(song,"-")[[1]][1]
   
-  print(song)
+  #print(song)
  
  # navigate to correct index page on youtube and select first video link 
    ytURL <- paste0("https://www.youtube.com/results?search_query=",song)
  
+   #print(ytURL)
  
  ytHTML <- read_html(ytURL)
  link <- ytHTML %>% # dpwnloads all the html
    html_nodes( "h3 a" ) %>%
    html_attr("href")
  
- 
+ #print(ytHTML)
+ #print(link)
 
  
 
@@ -482,6 +484,8 @@ output$video <- renderUI({
  }
   theLink <- str_split(theLink,"=")[[1]][2]
 
+  #print("thelink")
+ # print(theLink)
   
   # using the vembedr package embed the resultant video
   embed_youtube(id = theLink,width = 450, query=list(autoplay=1))
@@ -509,6 +513,8 @@ output$lyric <- renderUI({
   
 songUrl <- str_replace_all(song," ","%20")
 
+#print(songUrl)
+
 lyricURL <- paste0("https://www.google.ca/search?q=",songUrl,"%20lyrics&rct=j")
 
 # scrapes appropriate url for all hrefs 
@@ -516,9 +522,14 @@ urls <- read_html(lyricURL) %>%
   html_nodes("a") %>% 
   html_attr("href")
 
+# print("urls")
+# print(urls)
 
 # Discover which is relevant url out of many
 x <- which(map_lgl(urls, ~ str_sub(.x,1,29)=="https://play.google.com/music")==TRUE) 
+
+# print("x")
+# print(x)#26 which looks right (tho in fact a linsa lohan song)
 
 # This attempts to cater for instances where title has an addition e.g "- Ramastered""
 if (length(x)==0) {
@@ -537,6 +548,11 @@ urls <- read_html(lyricURL) %>%
 x <- which(map_lgl(urls, ~ str_sub(.x,1,29)=="https://play.google.com/music")==TRUE)
   
 }
+# print("xagain")
+# print(x)
+# print("urls(x)")
+# print(urls[x])
+# print("b")
 
 # now obtain the full lyric from Google Music - or print failure
 if (length(x)>0) {

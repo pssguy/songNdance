@@ -317,6 +317,7 @@ The albums are ordered by release date. Zoom in, if desired; hover points to vie
 
 ```{r video, warning=FALSE}
 
+includeMarkdown("info.md")
 
 
 output$video <- renderUI({
